@@ -7,6 +7,11 @@ interface User {
 	socket: WebSocket;
 	room: String;
 }
+interface Room {
+	roomId: string;
+	messages: string[];
+	users: User[];
+}
 
 // Schema
 // Join a room
@@ -24,50 +29,61 @@ interface User {
 //     }
 // }
 
-let allSocket: User[] = [];
+const rooms: { [key: string]: Room } = {};
 
-// Making basic connection from client
+// Handle new WebSocket connections
 wss.on("connection", (socket) => {
-	// allSocket.push(socket);
-
-	// This line help to get message from client(user)
 	socket.on("message", (message) => {
-        //@ts-ignore
 		const parsedMessage = JSON.parse(message.toString());
 
-        console.log(allSocket);
+		// Join a Room
+		if (parsedMessage.type === "join") {
+			const roomId = parsedMessage.payload.roomId;
 
-		if (parsedMessage.type == "join") {
-			allSocket.push({
-				socket,
-				room: parsedMessage.payload.roomId,
-			});
+			if (!rooms[roomId]) {
+				rooms[roomId] = { roomId, messages: [], users: [] };
+			}
+
+			rooms[roomId].users.push({ socket, room: roomId });
+
+			// Send previous messages to the user
+			socket.send(
+				JSON.stringify({
+					type: "history",
+					payload: { messages: rooms[roomId].messages },
+				})
+			);
 		}
 
-        if(parsedMessage.type == "chat"){
-            // const currentUserRoom = allSocket.find((x) => x.socket == socket)?.room;
-            let currentUserRoom = null;
-            for(let i=0 ; i<allSocket.length ; i++){
-                if(allSocket[i].socket == socket){
-                    currentUserRoom = allSocket[i].room;
-                }
-            }
+		// Send a Chat Message
+		if (parsedMessage.type === "chat") {
+			const currentUserRoom = Object.values(rooms).find((room) =>
+				room.users.some((user) => user.socket === socket)
+			);
 
-            for(let i=0 ; i<allSocket.length ; i++){
-                if(allSocket[i].room == currentUserRoom){
-                    allSocket[i].socket.send(parsedMessage.payload.message);
-                }
-            }
-        }
+			if (currentUserRoom) {
+				// Store the message
+				currentUserRoom.messages.push(parsedMessage.payload.message);
 
-		// for(let i=0 ; i<allSocket.length ; i++){
-		//     const s = allSocket[i];
-		//     s.send("Msg from server " + message.toString());
-		// }
+				// Broadcast to all users in the room
+				currentUserRoom.users.forEach((user) => {
+					user.socket.send(
+						JSON.stringify({
+							type: "chat",
+							payload: { message: parsedMessage.payload.message },
+						})
+					);
+				});
+			}
+		}
 	});
 
-	// Don't broadcast to the disconnected client
-	socket.on("disconnect", () => {
-		allSocket = allSocket.filter((x) => x.socket != socket);
+	// Handle disconnection
+	socket.on("close", () => {
+		for (const roomId in rooms) {
+			rooms[roomId].users = rooms[roomId].users.filter(
+				(user) => user.socket !== socket
+			);
+		}
 	});
 });

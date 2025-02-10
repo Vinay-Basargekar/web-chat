@@ -10,9 +10,20 @@ function App() {
 	useEffect(() => {
 		if (roomId) {
 			const ws = new WebSocket("ws://localhost:8080");
-			ws.onmessage = (ev) => setMessages((prev) => [...prev, ev.data]);
+			// ws.onmessage = (ev) => setMessages((prev) => [...prev, ev.data]);
 			ws.onopen = () =>
 				ws.send(JSON.stringify({ type: "join", payload: { roomId } }));
+
+			ws.onmessage = (event) => {
+				const data = JSON.parse(event.data);
+
+				if (data.type === "history") {
+					setMessages(data.payload.messages); // Load history
+				} else if (data.type === "chat") {
+					setMessages((prev) => [...prev, data.payload.message]); // New messages
+				}
+			};
+			
 			wsRef.current = ws;
 
 			return () => ws.close();
